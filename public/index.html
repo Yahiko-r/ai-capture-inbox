@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Capture Inbox</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">AI</div>
+          <div>
+            <h1>Capture Inbox</h1>
+            <p id="providerLabel">Loading</p>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="Primary">
+          <button class="nav-item active" data-view="inbox" type="button">
+            <span>Inbox</span>
+            <strong id="statInbox">0</strong>
+          </button>
+          <button class="nav-item" data-view="review" type="button">
+            <span>Review</span>
+            <strong id="statReview">0</strong>
+          </button>
+          <button class="nav-item" data-view="tasks" type="button">
+            <span>Tasks</span>
+            <strong id="statTasks">0</strong>
+          </button>
+          <button class="nav-item" data-view="knowledge" type="button">
+            <span>Knowledge</span>
+            <strong id="statKnowledge">0</strong>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button id="refreshButton" class="icon-button" type="button" title="Refresh" aria-label="Refresh">
+            <span aria-hidden="true">↻</span>
+          </button>
+          <div id="statusLine" class="status-line">Ready</div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="capture-bar" aria-label="Capture">
+          <div class="tabs" role="tablist">
+            <button class="tab active" type="button" data-capture-mode="text">Text</button>
+            <button class="tab" type="button" data-capture-mode="url">URL</button>
+            <button class="tab" type="button" data-capture-mode="file">File</button>
+          </div>
+
+          <form id="textCaptureForm" class="capture-form active">
+            <textarea id="textCaptureInput" rows="3" placeholder="Paste an idea, note, or message"></textarea>
+            <button class="primary-button" type="submit">Save</button>
+          </form>
+
+          <form id="urlCaptureForm" class="capture-form">
+            <input id="urlCaptureInput" type="url" placeholder="https://example.com/article">
+            <button class="primary-button" type="submit">Save</button>
+          </form>
+
+          <form id="fileCaptureForm" class="capture-form">
+            <input id="fileCaptureInput" type="file" accept="image/*,.txt,.md,.json,.html,.csv">
+            <button class="primary-button" type="submit">Save</button>
+          </form>
+        </section>
+
+        <section class="content-panel">
+          <div class="panel-header">
+            <div>
+              <h2 id="viewTitle">Inbox</h2>
+              <p id="viewSubtitle">Pending captures</p>
+            </div>
+            <button id="processAllButton" class="secondary-button" type="button">Process Pending</button>
+          </div>
+          <div id="contentList" class="content-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <template id="emptyTemplate">
+      <div class="empty-state">
+        <h3>No items</h3>
+      </div>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
+

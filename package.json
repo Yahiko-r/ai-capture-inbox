@@ -1,0 +1,26 @@
+{
+  "name": "ai-capture-inbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local-first AI inbox that turns links, screenshots, files, and notes into tasks and knowledge cards.",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/cli.ts",
+    "capture:text": "node --env-file-if-exists=.env src/cli.ts capture:text",
+    "capture:url": "node --env-file-if-exists=.env src/cli.ts capture:url",
+    "capture:file": "node --env-file-if-exists=.env src/cli.ts capture:file",
+    "process": "node --env-file-if-exists=.env src/cli.ts process",
+    "review": "node --env-file-if-exists=.env src/cli.ts review",
+    "task:add": "node --env-file-if-exists=.env src/cli.ts task:add",
+    "dev": "node --env-file-if-exists=.env src/server.ts",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+.env
+data/*.json
+data/attachments/*
+!data/attachments/.gitkeep
+data/uploads/*
+src-tauri/target/
+src-tauri/gen/
