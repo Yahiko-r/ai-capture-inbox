@@ -55,6 +55,7 @@ pub struct Capture {
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     pub id: String,
+    pub note_id: Option<String>,
     pub capture_id: Option<String>,
     pub title: String,
     pub notes: String,
@@ -66,6 +67,41 @@ pub struct Task {
     pub reminded_at: Option<String>,
     pub source: String,
     pub completed_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Note {
+    pub id: String,
+    pub title: String,
+    pub source_type: String,
+    pub raw_text: Option<String>,
+    pub source_url: Option<String>,
+    pub site: Option<String>,
+    pub file_path: Option<String>,
+    pub mime_type: Option<String>,
+    pub image_data_url: Option<String>,
+    pub extracted_text: Option<String>,
+    pub ai_summary: Option<String>,
+    pub ai_title: Option<String>,
+    pub ai_category: Option<String>,
+    pub ai_tags: Vec<String>,
+    pub status: String,
+    pub processing_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BigNote {
+    pub id: String,
+    pub title: String,
+    pub content_markdown: String,
+    pub inserted_note_ids: Vec<String>,
+    pub inserted_todo_ids: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -109,6 +145,8 @@ pub struct AiRun {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Stats {
+    pub notes: usize,
+    pub big_notes: usize,
     pub inbox: usize,
     pub review: usize,
     pub tasks_open: usize,
@@ -118,6 +156,8 @@ pub struct Stats {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
+    pub notes: Vec<Note>,
+    pub big_notes: Vec<BigNote>,
     pub captures: Vec<Capture>,
     pub tasks: Vec<Task>,
     pub knowledge_cards: Vec<KnowledgeCard>,

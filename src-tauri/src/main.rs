@@ -3,4 +3,3 @@
 fn main() {
     ai_capture_inbox_lib::run()
 }
-

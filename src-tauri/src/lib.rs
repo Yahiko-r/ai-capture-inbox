@@ -21,6 +21,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::create_text_note,
+            commands::create_url_note,
+            commands::create_file_note,
+            commands::create_big_note,
+            commands::update_big_note,
+            commands::create_todo_from_note,
+            commands::insert_note_into_big_note,
+            commands::insert_todo_into_big_note,
             commands::get_state,
             commands::create_text_capture,
             commands::create_url_capture,

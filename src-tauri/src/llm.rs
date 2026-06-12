@@ -1,4 +1,6 @@
-use crate::models::{AiResult, Capture, KnowledgePoint, LlmConfig, LlmRequestResult, SuggestedTask};
+use crate::models::{
+    AiResult, Capture, KnowledgePoint, LlmConfig, LlmRequestResult, SuggestedTask,
+};
 use crate::storage::project_root;
 use reqwest::{Client, Proxy};
 use serde_json::{json, Value};
@@ -112,10 +114,7 @@ pub async fn analyze_capture(capture: &Capture) -> Result<LlmRequestResult, Stri
         }
     }
 
-    let endpoint = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let client = http_client()?;
     let response = client
         .post(endpoint)
@@ -128,7 +127,10 @@ pub async fn analyze_capture(capture: &Capture) -> Result<LlmRequestResult, Stri
     let status = response.status();
     let text = response.text().await.map_err(|error| error.to_string())?;
     if !status.is_success() {
-        return Err(format!("LLM request failed: HTTP {status} {}", truncate(&text, 500)));
+        return Err(format!(
+            "LLM request failed: HTTP {status} {}",
+            truncate(&text, 500)
+        ));
     }
 
     let value: Value = serde_json::from_str(&text).map_err(|error| error.to_string())?;
@@ -157,7 +159,10 @@ fn merged_env() -> HashMap<String, String> {
                     continue;
                 }
                 if let Some((key, value)) = trimmed.split_once('=') {
-                    env.insert(key.trim().to_string(), value.trim().trim_matches('"').to_string());
+                    env.insert(
+                        key.trim().to_string(),
+                        value.trim().trim_matches('"').to_string(),
+                    );
                 }
             }
         }
@@ -426,7 +431,9 @@ fn string_or(value: Option<&Value>, fallback: &str) -> String {
 
 fn category_or(value: Option<&Value>) -> String {
     match value.and_then(|value| value.as_str()) {
-        Some(category @ ("task" | "knowledge" | "reading" | "idea" | "decision" | "archive")) => category.to_string(),
+        Some(category @ ("task" | "knowledge" | "reading" | "idea" | "decision" | "archive")) => {
+            category.to_string()
+        }
         _ => "archive".to_string(),
     }
 }

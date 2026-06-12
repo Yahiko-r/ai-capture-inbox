@@ -9,13 +9,11 @@ use tauri_plugin_notification::NotificationExt;
 const REMINDER_CHECK_SECONDS: u64 = 30;
 
 pub fn start(app: AppHandle) {
-    thread::spawn(move || {
-        loop {
-            if let Err(error) = check_due_reminders(&app) {
-                eprintln!("Reminder check failed: {error}");
-            }
-            thread::sleep(Duration::from_secs(REMINDER_CHECK_SECONDS));
+    thread::spawn(move || loop {
+        if let Err(error) = check_due_reminders(&app) {
+            eprintln!("Reminder check failed: {error}");
         }
+        thread::sleep(Duration::from_secs(REMINDER_CHECK_SECONDS));
     });
 }
 

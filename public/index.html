@@ -9,75 +9,73 @@
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-mark">AI</div>
+        <div class="profile">
+          <div class="avatar">AI</div>
           <div>
             <h1>Capture Inbox</h1>
             <p id="providerLabel">Loading</p>
           </div>
         </div>
 
-        <nav class="nav" aria-label="Primary">
-          <button class="nav-item active" data-view="inbox" type="button">
-            <span>Inbox</span>
-            <strong id="statInbox">0</strong>
-          </button>
-          <button class="nav-item" data-view="review" type="button">
-            <span>Review</span>
-            <strong id="statReview">0</strong>
-          </button>
-          <button class="nav-item" data-view="tasks" type="button">
-            <span>Tasks</span>
-            <strong id="statTasks">0</strong>
-          </button>
-          <button class="nav-item" data-view="knowledge" type="button">
-            <span>Knowledge</span>
-            <strong id="statKnowledge">0</strong>
-          </button>
+        <section class="composer">
+          <div class="composer-tabs">
+            <button class="composer-tab active" type="button" data-capture-mode="text">Text</button>
+            <button class="composer-tab" type="button" data-capture-mode="url">Web</button>
+            <button class="composer-tab" type="button" data-capture-mode="file">Image</button>
+          </div>
+
+          <form id="textCaptureForm" class="capture-form active">
+            <textarea id="textCaptureInput" rows="4" placeholder="Write a note"></textarea>
+            <button class="primary-button" type="submit">Create note</button>
+          </form>
+
+          <form id="urlCaptureForm" class="capture-form">
+            <input id="urlCaptureInput" type="url" placeholder="https://example.com">
+            <button class="primary-button" type="submit">Analyze web</button>
+          </form>
+
+          <form id="fileCaptureForm" class="capture-form">
+            <input id="fileCaptureInput" type="file" accept="image/*,.txt,.md,.json,.html,.csv">
+            <button class="primary-button" type="submit">Analyze image</button>
+          </form>
+        </section>
+
+        <nav class="nav-groups" aria-label="Workspace">
+          <section class="nav-group">
+            <div class="nav-heading">
+              <span>Notes</span>
+              <strong id="statNotes">0</strong>
+            </div>
+            <div id="noteList" class="nav-list"></div>
+          </section>
+
+          <section class="nav-group">
+            <button id="todoNavButton" class="nav-row" type="button">
+              <span>TODO</span>
+              <strong id="statTasks">0</strong>
+            </button>
+          </section>
+
+          <section class="nav-group">
+            <div class="nav-heading">
+              <span>Big Notes</span>
+              <button id="newBigNoteButton" class="tiny-button" type="button" title="New big note">+</button>
+            </div>
+            <div id="bigNoteList" class="nav-list"></div>
+          </section>
         </nav>
 
         <div class="sidebar-footer">
-          <button id="refreshButton" class="icon-button" type="button" title="Refresh" aria-label="Refresh">
-            <span aria-hidden="true">↻</span>
-          </button>
+          <button id="refreshButton" class="icon-button" type="button" title="Refresh" aria-label="Refresh">↻</button>
           <div id="statusLine" class="status-line">Ready</div>
         </div>
       </aside>
 
       <main class="workspace">
-        <section class="capture-bar" aria-label="Capture">
-          <div class="tabs" role="tablist">
-            <button class="tab active" type="button" data-capture-mode="text">Text</button>
-            <button class="tab" type="button" data-capture-mode="url">URL</button>
-            <button class="tab" type="button" data-capture-mode="file">File</button>
-          </div>
-
-          <form id="textCaptureForm" class="capture-form active">
-            <textarea id="textCaptureInput" rows="3" placeholder="Paste an idea, note, or message"></textarea>
-            <button class="primary-button" type="submit">Save</button>
-          </form>
-
-          <form id="urlCaptureForm" class="capture-form">
-            <input id="urlCaptureInput" type="url" placeholder="https://example.com/article">
-            <button class="primary-button" type="submit">Save</button>
-          </form>
-
-          <form id="fileCaptureForm" class="capture-form">
-            <input id="fileCaptureInput" type="file" accept="image/*,.txt,.md,.json,.html,.csv">
-            <button class="primary-button" type="submit">Save</button>
-          </form>
-        </section>
-
-        <section class="content-panel">
-          <div class="panel-header">
-            <div>
-              <h2 id="viewTitle">Inbox</h2>
-              <p id="viewSubtitle">Pending captures</p>
-            </div>
-            <button id="processAllButton" class="secondary-button" type="button">Process Pending</button>
-          </div>
-          <div id="contentList" class="content-list"></div>
-        </section>
+        <header class="topbar">
+          <input id="searchInput" class="search-input" type="search" placeholder="Search notes, todos, big notes">
+        </header>
+        <section id="mainPanel" class="main-panel"></section>
       </main>
     </div>
 
@@ -90,4 +88,3 @@
     <script src="/app.js" type="module"></script>
   </body>
 </html>
-

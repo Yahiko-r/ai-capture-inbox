@@ -1,5 +1,7 @@
 use crate::llm::{analyze_capture, has_llm_config, normalize_ai_result, resolve_llm_config};
-use crate::models::{AiResult, AiRun, Capture, InputSnapshot, KnowledgeCard, LlmRequestResult, Task};
+use crate::models::{
+    AiResult, AiRun, BigNote, Capture, InputSnapshot, KnowledgeCard, LlmRequestResult, Note, Task,
+};
 use crate::storage;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -28,6 +30,208 @@ pub struct ProcessedCapture {
 pub struct AcceptedSuggestions {
     pub tasks: Vec<Task>,
     pub cards: Vec<KnowledgeCard>,
+}
+
+#[tauri::command]
+pub async fn create_text_note(app: AppHandle, text: String) -> Result<Note, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("Text is required.".to_string());
+    }
+    let extracted_text = trimmed.to_string();
+
+    let note = create_note(
+        &app,
+        Note {
+            title: extracted_text.chars().take(90).collect(),
+            source_type: "text".to_string(),
+            raw_text: Some(text),
+            extracted_text: Some(extracted_text),
+            status: "ready".to_string(),
+            ..new_note_base()
+        },
+    )?;
+
+    analyze_and_replace_note(&app, note).await
+}
+
+#[tauri::command]
+pub async fn create_url_note(app: AppHandle, url: String) -> Result<Note, String> {
+    let clean_url = url.trim();
+    if clean_url.is_empty() {
+        return Err("URL is required.".to_string());
+    }
+
+    let parsed = Url::parse(clean_url).map_err(|error| error.to_string())?;
+    let mut note = create_note(
+        &app,
+        Note {
+            title: parsed.as_str().to_string(),
+            source_type: "url".to_string(),
+            source_url: Some(parsed.as_str().to_string()),
+            extracted_text: Some(parsed.as_str().to_string()),
+            status: "processing".to_string(),
+            ..new_note_base()
+        },
+    )?;
+
+    match extract_url(parsed).await {
+        Ok(extracted) => {
+            note.title = extracted.title;
+            note.site = Some(extracted.site);
+            note.extracted_text = Some(extracted.normalized_text);
+            note.status = "ready".to_string();
+        }
+        Err(error) => {
+            note.processing_error = Some(error);
+            note.status = "failed".to_string();
+        }
+    }
+    note.updated_at = storage::now_iso();
+    replace_note(&app, note.clone())?;
+
+    if note.status == "failed" {
+        return Ok(note);
+    }
+    analyze_and_replace_note(&app, note).await
+}
+
+#[tauri::command]
+pub async fn create_file_note(
+    app: AppHandle,
+    file_name: String,
+    mime_type: Option<String>,
+    data_base64: String,
+) -> Result<Note, String> {
+    if file_name.trim().is_empty() {
+        return Err("File name is required.".to_string());
+    }
+    if data_base64.trim().is_empty() {
+        return Err("File data is required.".to_string());
+    }
+
+    let bytes = STANDARD
+        .decode(data_base64.trim())
+        .map_err(|error| format!("Invalid file data: {error}"))?;
+    let upload_path = save_upload(&app, &file_name, &bytes)?;
+    let note = create_file_note_from_path(&app, &upload_path, Some(file_name), mime_type)?;
+    analyze_and_replace_note(&app, note).await
+}
+
+#[tauri::command]
+pub fn create_big_note(
+    app: AppHandle,
+    title: String,
+    content_markdown: Option<String>,
+) -> Result<BigNote, String> {
+    let clean_title = clean_title_or(&title, "Untitled Note");
+    let timestamp = storage::now_iso();
+    let note = BigNote {
+        id: storage::create_id("bn"),
+        title: clean_title,
+        content_markdown: content_markdown.unwrap_or_default(),
+        inserted_note_ids: Vec::new(),
+        inserted_todo_ids: Vec::new(),
+        created_at: timestamp.clone(),
+        updated_at: timestamp,
+    };
+    let mut notes = storage::list_big_notes(&app)?;
+    notes.insert(0, note.clone());
+    storage::write_big_notes(&app, &notes)?;
+    Ok(note)
+}
+
+#[tauri::command]
+pub fn update_big_note(
+    app: AppHandle,
+    id: String,
+    title: String,
+    content_markdown: String,
+) -> Result<BigNote, String> {
+    let mut notes = storage::list_big_notes(&app)?;
+    let position = notes
+        .iter()
+        .position(|note| note.id == id)
+        .ok_or_else(|| format!("Big note not found: {id}"))?;
+
+    notes[position].title = clean_title_or(&title, "Untitled Note");
+    notes[position].content_markdown = content_markdown;
+    notes[position].updated_at = storage::now_iso();
+    let note = notes[position].clone();
+    storage::write_big_notes(&app, &notes)?;
+    Ok(note)
+}
+
+#[tauri::command]
+pub fn create_todo_from_note(
+    app: AppHandle,
+    note_id: String,
+    title: String,
+    due_at: String,
+    reminder_at: Option<String>,
+) -> Result<Task, String> {
+    let note = get_note(&app, &note_id)?.ok_or_else(|| format!("Note not found: {note_id}"))?;
+    let due_at = clean_optional(Some(due_at)).ok_or_else(|| "Due date is required.".to_string())?;
+    let timestamp = storage::now_iso();
+    let task = Task {
+        id: storage::create_id("task"),
+        note_id: Some(note.id.clone()),
+        capture_id: None,
+        title: clean_title_or(&title, &note.title),
+        notes: note
+            .ai_summary
+            .clone()
+            .or_else(|| note.extracted_text.clone())
+            .unwrap_or_default(),
+        status: "open".to_string(),
+        priority: "medium".to_string(),
+        due_at: Some(due_at),
+        due_suggestion: None,
+        reminder_at: clean_optional(reminder_at),
+        reminded_at: None,
+        source: "note".to_string(),
+        completed_at: None,
+        created_at: timestamp.clone(),
+        updated_at: timestamp,
+    };
+    let mut tasks = storage::list_tasks(&app)?;
+    tasks.insert(0, task.clone());
+    storage::write_tasks(&app, &tasks)?;
+    Ok(task)
+}
+
+#[tauri::command]
+pub fn insert_note_into_big_note(
+    app: AppHandle,
+    note_id: String,
+    big_note_id: Option<String>,
+) -> Result<BigNote, String> {
+    let note = get_note(&app, &note_id)?.ok_or_else(|| format!("Note not found: {note_id}"))?;
+    let mut big_note = ensure_big_note(&app, big_note_id)?;
+    let block = note_markdown_block(&note);
+    prepend_to_big_note(&mut big_note, &block);
+    if !big_note.inserted_note_ids.iter().any(|id| id == &note.id) {
+        big_note.inserted_note_ids.push(note.id);
+    }
+    replace_big_note(&app, big_note.clone())?;
+    Ok(big_note)
+}
+
+#[tauri::command]
+pub fn insert_todo_into_big_note(
+    app: AppHandle,
+    todo_id: String,
+    big_note_id: Option<String>,
+) -> Result<BigNote, String> {
+    let task = get_task(&app, &todo_id)?.ok_or_else(|| format!("Todo not found: {todo_id}"))?;
+    let mut big_note = ensure_big_note(&app, big_note_id)?;
+    let block = todo_markdown_block(&task);
+    prepend_to_big_note(&mut big_note, &block);
+    if !big_note.inserted_todo_ids.iter().any(|id| id == &task.id) {
+        big_note.inserted_todo_ids.push(task.id);
+    }
+    replace_big_note(&app, big_note.clone())?;
+    Ok(big_note)
 }
 
 #[tauri::command]
@@ -112,7 +316,10 @@ pub fn create_file_capture(
 }
 
 #[tauri::command]
-pub async fn process_captures(app: AppHandle, id: Option<String>) -> Result<Vec<ProcessedCapture>, String> {
+pub async fn process_captures(
+    app: AppHandle,
+    id: Option<String>,
+) -> Result<Vec<ProcessedCapture>, String> {
     let captures = storage::list_captures(&app)?;
     let targets: Vec<Capture> = if let Some(id) = id {
         captures
@@ -154,6 +361,7 @@ pub fn accept_review(app: AppHandle, id: String) -> Result<AcceptedSuggestions, 
         .iter()
         .map(|task| Task {
             id: storage::create_id("task"),
+            note_id: None,
             capture_id: Some(capture.id.clone()),
             title: task.title.clone(),
             notes: task.reason.clone(),
@@ -231,6 +439,7 @@ pub fn create_task(
     let timestamp = storage::now_iso();
     let task = Task {
         id: storage::create_id("task"),
+        note_id: None,
         capture_id: None,
         title: clean_title.to_string(),
         notes: notes.unwrap_or_default().trim().to_string(),
@@ -424,6 +633,236 @@ fn create_capture(app: &AppHandle, mut capture: Capture) -> Result<Capture, Stri
     Ok(capture)
 }
 
+fn create_note(app: &AppHandle, mut note: Note) -> Result<Note, String> {
+    note.id = storage::create_id("note");
+    let timestamp = storage::now_iso();
+    note.created_at = timestamp.clone();
+    note.updated_at = timestamp;
+    let mut notes = storage::list_notes(app)?;
+    notes.insert(0, note.clone());
+    storage::write_notes(app, &notes)?;
+    Ok(note)
+}
+
+fn new_note_base() -> Note {
+    Note {
+        id: String::new(),
+        title: String::new(),
+        source_type: String::new(),
+        raw_text: None,
+        source_url: None,
+        site: None,
+        file_path: None,
+        mime_type: None,
+        image_data_url: None,
+        extracted_text: None,
+        ai_summary: None,
+        ai_title: None,
+        ai_category: None,
+        ai_tags: Vec::new(),
+        status: "ready".to_string(),
+        processing_error: None,
+        created_at: String::new(),
+        updated_at: String::new(),
+    }
+}
+
+fn get_note(app: &AppHandle, id: &str) -> Result<Option<Note>, String> {
+    Ok(storage::list_notes(app)?
+        .into_iter()
+        .find(|note| note.id == id))
+}
+
+fn replace_note(app: &AppHandle, note: Note) -> Result<(), String> {
+    let mut notes = storage::list_notes(app)?;
+    let position = notes
+        .iter()
+        .position(|item| item.id == note.id)
+        .ok_or_else(|| format!("Note not found: {}", note.id))?;
+    notes[position] = note;
+    storage::write_notes(app, &notes)
+}
+
+fn get_task(app: &AppHandle, id: &str) -> Result<Option<Task>, String> {
+    Ok(storage::list_tasks(app)?
+        .into_iter()
+        .find(|task| task.id == id))
+}
+
+fn replace_big_note(app: &AppHandle, note: BigNote) -> Result<(), String> {
+    let mut notes = storage::list_big_notes(app)?;
+    let position = notes
+        .iter()
+        .position(|item| item.id == note.id)
+        .ok_or_else(|| format!("Big note not found: {}", note.id))?;
+    notes[position] = note;
+    storage::write_big_notes(app, &notes)
+}
+
+fn ensure_big_note(app: &AppHandle, id: Option<String>) -> Result<BigNote, String> {
+    if let Some(id) = clean_optional(id) {
+        return storage::list_big_notes(app)?
+            .into_iter()
+            .find(|note| note.id == id)
+            .ok_or_else(|| format!("Big note not found: {id}"));
+    }
+
+    let existing = storage::list_big_notes(app)?;
+    if let Some(note) = existing.first() {
+        return Ok(note.clone());
+    }
+
+    let timestamp = storage::now_iso();
+    let note = BigNote {
+        id: storage::create_id("bn"),
+        title: "Collected Notes".to_string(),
+        content_markdown: String::new(),
+        inserted_note_ids: Vec::new(),
+        inserted_todo_ids: Vec::new(),
+        created_at: timestamp.clone(),
+        updated_at: timestamp,
+    };
+    storage::write_big_notes(app, &[note.clone()])?;
+    Ok(note)
+}
+
+async fn analyze_and_replace_note(app: &AppHandle, note: Note) -> Result<Note, String> {
+    let capture = note_to_capture(&note);
+    let started_at = storage::now_iso();
+    let config = if has_llm_config() {
+        Some(resolve_llm_config())
+    } else {
+        None
+    };
+    let provider = config
+        .as_ref()
+        .map(|config| config.provider.clone())
+        .unwrap_or_else(|| "local-mock".to_string());
+    let model = config.as_ref().map(|config| config.model.clone());
+
+    let request_result = if config.is_some() {
+        analyze_capture(&capture).await
+    } else {
+        Ok(LlmRequestResult {
+            result: analyze_with_mock(&capture),
+            provider: provider.clone(),
+            model: "local-mock".to_string(),
+        })
+    };
+
+    match request_result {
+        Ok(result) => {
+            create_ai_run(
+                app,
+                AiRun {
+                    id: storage::create_id("airun"),
+                    capture_id: note.id.clone(),
+                    provider: result.provider,
+                    model: Some(result.model),
+                    input_snapshot: snapshot(&capture),
+                    output_json: Some(result.result.clone()),
+                    status: "success".to_string(),
+                    error: None,
+                    started_at,
+                    created_at: storage::now_iso(),
+                },
+            )?;
+
+            let mut updated = note;
+            apply_ai_result_to_note(&mut updated, &result.result);
+            updated.status = "ready".to_string();
+            updated.processing_error = None;
+            updated.updated_at = storage::now_iso();
+            replace_note(app, updated.clone())?;
+            Ok(updated)
+        }
+        Err(error) => {
+            create_ai_run(
+                app,
+                AiRun {
+                    id: storage::create_id("airun"),
+                    capture_id: note.id.clone(),
+                    provider,
+                    model,
+                    input_snapshot: snapshot(&capture),
+                    output_json: None,
+                    status: "failed".to_string(),
+                    error: Some(error.clone()),
+                    started_at,
+                    created_at: storage::now_iso(),
+                },
+            )?;
+
+            let mut updated = note;
+            updated.status = "failed".to_string();
+            updated.processing_error = Some(error);
+            updated.updated_at = storage::now_iso();
+            replace_note(app, updated.clone())?;
+            Ok(updated)
+        }
+    }
+}
+
+fn note_to_capture(note: &Note) -> Capture {
+    Capture {
+        id: note.id.clone(),
+        source_type: note.source_type.clone(),
+        status: note.status.clone(),
+        review_status: None,
+        ai_result: None,
+        title: note.title.clone(),
+        raw_text: note.raw_text.clone(),
+        normalized_text: note.extracted_text.clone(),
+        source_url: note.source_url.clone(),
+        site: note.site.clone(),
+        file_path: note.file_path.clone(),
+        mime_type: note.mime_type.clone(),
+        image_data_url: note.image_data_url.clone(),
+        ocr_text: note.extracted_text.clone(),
+        ocr_provider: None,
+        ocr_error: None,
+        extraction_error: None,
+        processing_error: note.processing_error.clone(),
+        created_at: note.created_at.clone(),
+        updated_at: note.updated_at.clone(),
+    }
+}
+
+fn apply_ai_result_to_note(note: &mut Note, result: &AiResult) {
+    if !result.title.trim().is_empty() {
+        note.ai_title = Some(result.title.clone());
+        note.title = result.title.clone();
+    }
+    note.ai_summary = Some(
+        [
+            result.summary.clone(),
+            if result.why_saved.trim().is_empty() {
+                String::new()
+            } else {
+                format!("Why saved: {}", result.why_saved)
+            },
+            result
+                .knowledge_points
+                .iter()
+                .map(|point| {
+                    if point.content.trim().is_empty() {
+                        point.title.clone()
+                    } else {
+                        format!("{}: {}", point.title, point.content)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ]
+        .into_iter()
+        .filter(|value| !value.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n"),
+    );
+    note.ai_category = Some(result.category.clone());
+    note.ai_tags = result.tags.clone();
+}
+
 fn new_capture_base() -> Capture {
     Capture {
         id: String::new(),
@@ -537,12 +976,18 @@ fn create_file_capture_from_path(
 
     if is_text_file(&stored_path) {
         let content = fs::read_to_string(&stored_path).map_err(|error| error.to_string())?;
-        normalized_text = format!("File: {display_name}\n\n{}", truncate_chars(&content, 20_000));
+        normalized_text = format!(
+            "File: {display_name}\n\n{}",
+            truncate_chars(&content, 20_000)
+        );
     }
 
     if is_image_file(&stored_path) {
         let bytes = fs::read(&stored_path).map_err(|error| error.to_string())?;
-        image_data_url = Some(format!("data:{mime_type};base64,{}", STANDARD.encode(bytes)));
+        image_data_url = Some(format!(
+            "data:{mime_type};base64,{}",
+            STANDARD.encode(bytes)
+        ));
         match extract_image_text_with_local_ocr(&stored_path) {
             Ok(text) => {
                 if !text.trim().is_empty() {
@@ -590,6 +1035,173 @@ fn create_file_capture_from_path(
             ..new_capture_base()
         },
     )
+}
+
+fn create_file_note_from_path(
+    app: &AppHandle,
+    source_path: &Path,
+    original_name: Option<String>,
+    provided_mime: Option<String>,
+) -> Result<Note, String> {
+    let attachments = storage::data_dir(app)?.join("attachments");
+    fs::create_dir_all(&attachments).map_err(|error| error.to_string())?;
+
+    let extension = source_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let stored_name = if extension.is_empty() {
+        storage::create_id("file")
+    } else {
+        format!("{}.{}", storage::create_id("file"), extension)
+    };
+    let stored_path = attachments.join(stored_name);
+    fs::copy(source_path, &stored_path).map_err(|error| error.to_string())?;
+
+    let display_name = original_name
+        .as_deref()
+        .map(Path::new)
+        .and_then(|path| path.file_name())
+        .and_then(|value| value.to_str())
+        .unwrap_or_else(|| {
+            source_path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("uploaded-file")
+        })
+        .to_string();
+    let mime_type = provided_mime
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| guess_mime_type(&stored_path));
+
+    let mut extracted_text = format!("File: {display_name}\nType: {mime_type}");
+    let mut image_data_url = None;
+    let mut processing_error = None;
+
+    if is_text_file(&stored_path) {
+        let content = fs::read_to_string(&stored_path).map_err(|error| error.to_string())?;
+        extracted_text = format!(
+            "File: {display_name}\n\n{}",
+            truncate_chars(&content, 20_000)
+        );
+    }
+
+    if is_image_file(&stored_path) {
+        let bytes = fs::read(&stored_path).map_err(|error| error.to_string())?;
+        image_data_url = Some(format!(
+            "data:{mime_type};base64,{}",
+            STANDARD.encode(bytes)
+        ));
+        match extract_image_text_with_local_ocr(&stored_path) {
+            Ok(text) if !text.trim().is_empty() => {
+                extracted_text = [
+                    format!("Image file: {display_name}"),
+                    format!("Type: {mime_type}"),
+                    format!("Local OCR (macos-vision) text:\n{text}"),
+                ]
+                .join("\n\n");
+            }
+            Ok(_) => {
+                extracted_text = [
+                    format!("Image file: {display_name}"),
+                    format!("Type: {mime_type}"),
+                    "No local OCR text extracted. Use direct vision analysis if the selected model supports image input.".to_string(),
+                ]
+                .join("\n\n");
+            }
+            Err(error) => {
+                processing_error = Some(format!("Local OCR error: {error}"));
+                extracted_text = [
+                    format!("Image file: {display_name}"),
+                    format!("Type: {mime_type}"),
+                    "No local OCR text extracted. Use direct vision analysis if the selected model supports image input.".to_string(),
+                    format!("Local OCR error: {error}"),
+                ]
+                .join("\n\n");
+            }
+        }
+    }
+
+    create_note(
+        app,
+        Note {
+            title: display_name,
+            source_type: if is_image_file(&stored_path) {
+                "image".to_string()
+            } else {
+                "file".to_string()
+            },
+            file_path: Some(stored_path.to_string_lossy().to_string()),
+            mime_type: Some(mime_type),
+            image_data_url,
+            extracted_text: Some(extracted_text),
+            processing_error,
+            status: "ready".to_string(),
+            ..new_note_base()
+        },
+    )
+}
+
+fn prepend_to_big_note(big_note: &mut BigNote, block: &str) {
+    let current = big_note.content_markdown.trim_start();
+    big_note.content_markdown = if current.is_empty() {
+        block.trim().to_string()
+    } else {
+        format!("{}\n\n{}", block.trim(), current)
+    };
+    big_note.updated_at = storage::now_iso();
+}
+
+fn note_markdown_block(note: &Note) -> String {
+    [
+        format!("## {}", note.title),
+        note.source_url
+            .as_ref()
+            .map(|url| format!("Source: {url}"))
+            .unwrap_or_default(),
+        note.ai_summary
+            .clone()
+            .or_else(|| note.extracted_text.clone())
+            .unwrap_or_default(),
+        note.file_path
+            .as_ref()
+            .filter(|_| note.source_type == "image")
+            .map(|path| format!("Original image: {path}"))
+            .unwrap_or_default(),
+    ]
+    .into_iter()
+    .filter(|value| !value.trim().is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n")
+}
+
+fn todo_markdown_block(task: &Task) -> String {
+    [
+        format!("- [ ] {}", task.title),
+        task.due_at
+            .as_ref()
+            .map(|due| format!("  - due: {due}"))
+            .unwrap_or_default(),
+        if task.notes.trim().is_empty() {
+            String::new()
+        } else {
+            format!("  - notes: {}", task.notes)
+        },
+    ]
+    .into_iter()
+    .filter(|value| !value.trim().is_empty())
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn clean_title_or(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.chars().take(140).collect()
+    }
 }
 
 fn extract_image_text_with_local_ocr(image_path: &Path) -> Result<String, String> {
@@ -680,8 +1292,8 @@ fn analyze_with_mock(capture: &Capture) -> AiResult {
     .iter()
     .any(|keyword| lower.contains(&keyword.to_lowercase()));
     let has_knowledge_intent = [
-        "how to", "guide", "tutorial", "learn", "concept", "教程", "知识", "方法", "原理",
-        "文章", "观点",
+        "how to", "guide", "tutorial", "learn", "concept", "教程", "知识", "方法", "原理", "文章",
+        "观点",
     ]
     .iter()
     .any(|keyword| lower.contains(&keyword.to_lowercase()));
@@ -736,7 +1348,10 @@ fn analyze_with_mock(capture: &Capture) -> AiResult {
 
 fn to_task_title(text: &str) -> String {
     let lower_prefixes = ["todo", "task", "remember to", "need to", "should"];
-    let mut clean = text.trim().trim_start_matches("- ").trim_start_matches("* ");
+    let mut clean = text
+        .trim()
+        .trim_start_matches("- ")
+        .trim_start_matches("* ");
     for prefix in lower_prefixes {
         if clean.to_lowercase().starts_with(prefix) {
             clean = clean[prefix.len()..].trim_start_matches(':').trim();
