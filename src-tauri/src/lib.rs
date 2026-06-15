@@ -30,6 +30,8 @@ pub fn run() {
             commands::insert_note_into_big_note,
             commands::insert_todo_into_big_note,
             commands::get_state,
+            commands::get_analysis_prompt,
+            commands::update_analysis_prompt,
             commands::create_text_capture,
             commands::create_url_capture,
             commands::create_file_capture,

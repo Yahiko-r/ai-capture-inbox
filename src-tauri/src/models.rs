@@ -143,6 +143,13 @@ pub struct AiRun {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AppSettings {
+    pub analysis_prompt: String,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Stats {
     pub notes: usize,
@@ -162,6 +169,7 @@ pub struct AppState {
     pub tasks: Vec<Task>,
     pub knowledge_cards: Vec<KnowledgeCard>,
     pub ai_runs: Vec<AiRun>,
+    pub settings: AppSettings,
     pub stats: Stats,
 }
 

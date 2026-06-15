@@ -1,6 +1,7 @@
 use crate::llm::{analyze_capture, has_llm_config, normalize_ai_result, resolve_llm_config};
 use crate::models::{
-    AiResult, AiRun, BigNote, Capture, InputSnapshot, KnowledgeCard, LlmRequestResult, Note, Task,
+    AiResult, AiRun, AppSettings, BigNote, Capture, InputSnapshot, KnowledgeCard, LlmRequestResult,
+    Note, Task,
 };
 use crate::storage;
 use base64::engine::general_purpose::STANDARD;
@@ -237,6 +238,21 @@ pub fn insert_todo_into_big_note(
 #[tauri::command]
 pub fn get_state(app: AppHandle) -> Result<crate::models::AppState, String> {
     storage::get_state(&app)
+}
+
+#[tauri::command]
+pub fn get_analysis_prompt(app: AppHandle) -> Result<AppSettings, String> {
+    storage::get_settings(&app)
+}
+
+#[tauri::command]
+pub fn update_analysis_prompt(app: AppHandle, prompt: String) -> Result<AppSettings, String> {
+    let settings = AppSettings {
+        analysis_prompt: prompt.trim().to_string(),
+        updated_at: Some(storage::now_iso()),
+    };
+    storage::write_settings(&app, &settings)?;
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -546,6 +562,7 @@ fn clean_notification_text(value: &str, fallback: &str) -> String {
 
 async fn process_capture(app: &AppHandle, capture: Capture) -> Result<AiResult, String> {
     let started_at = storage::now_iso();
+    let settings = storage::get_settings(app)?;
     let config = if has_llm_config() {
         Some(resolve_llm_config())
     } else {
@@ -558,10 +575,10 @@ async fn process_capture(app: &AppHandle, capture: Capture) -> Result<AiResult, 
     let model = config.as_ref().map(|config| config.model.clone());
 
     let request_result = if config.is_some() {
-        analyze_capture(&capture).await
+        analyze_capture(&capture, Some(&settings.analysis_prompt)).await
     } else {
         Ok(LlmRequestResult {
-            result: analyze_with_mock(&capture),
+            result: analyze_with_mock(&capture, Some(&settings.analysis_prompt)),
             provider: provider.clone(),
             model: "local-mock".to_string(),
         })
@@ -729,6 +746,7 @@ fn ensure_big_note(app: &AppHandle, id: Option<String>) -> Result<BigNote, Strin
 async fn analyze_and_replace_note(app: &AppHandle, note: Note) -> Result<Note, String> {
     let capture = note_to_capture(&note);
     let started_at = storage::now_iso();
+    let settings = storage::get_settings(app)?;
     let config = if has_llm_config() {
         Some(resolve_llm_config())
     } else {
@@ -741,10 +759,10 @@ async fn analyze_and_replace_note(app: &AppHandle, note: Note) -> Result<Note, S
     let model = config.as_ref().map(|config| config.model.clone());
 
     let request_result = if config.is_some() {
-        analyze_capture(&capture).await
+        analyze_capture(&capture, Some(&settings.analysis_prompt)).await
     } else {
         Ok(LlmRequestResult {
-            result: analyze_with_mock(&capture),
+            result: analyze_with_mock(&capture, Some(&settings.analysis_prompt)),
             provider: provider.clone(),
             model: "local-mock".to_string(),
         })
@@ -1264,7 +1282,7 @@ struct UrlExtractionResult {
     normalized_text: String,
 }
 
-fn analyze_with_mock(capture: &Capture) -> AiResult {
+fn analyze_with_mock(capture: &Capture, analysis_prompt: Option<&str>) -> AiResult {
     let text = capture
         .normalized_text
         .clone()
@@ -1310,6 +1328,11 @@ fn analyze_with_mock(capture: &Capture) -> AiResult {
         },
         90,
     );
+    let prompt_note = analysis_prompt
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| format!(" Current analysis prompt: {}", truncate_chars(value, 160)))
+        .unwrap_or_default();
 
     let suggested_tasks = if has_task_intent {
         vec![json!({
@@ -1335,9 +1358,9 @@ fn analyze_with_mock(capture: &Capture) -> AiResult {
         "summary": summarize(&text),
         "category": if has_task_intent { "task" } else if has_knowledge_intent { "knowledge" } else { "idea" },
         "why_saved": if has_task_intent {
-            "This looks like something that may need a follow-up action."
+            format!("This looks like something that may need a follow-up action.{prompt_note}")
         } else {
-            "This looks like information worth keeping for later review."
+            format!("This looks like information worth keeping for later review.{prompt_note}")
         },
         "suggested_tasks": suggested_tasks,
         "knowledge_points": knowledge_points,

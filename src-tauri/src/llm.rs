@@ -76,7 +76,10 @@ pub fn resolve_llm_config() -> LlmConfig {
     }
 }
 
-pub async fn analyze_capture(capture: &Capture) -> Result<LlmRequestResult, String> {
+pub async fn analyze_capture(
+    capture: &Capture,
+    analysis_prompt: Option<&str>,
+) -> Result<LlmRequestResult, String> {
     let config = resolve_llm_config();
     let api_key = config
         .api_key
@@ -94,7 +97,7 @@ pub async fn analyze_capture(capture: &Capture) -> Result<LlmRequestResult, Stri
             },
             {
                 "role": "user",
-                "content": build_user_content(capture, &config)
+                "content": build_user_content(capture, &config, analysis_prompt)
             }
         ]
     });
@@ -220,8 +223,22 @@ fn system_prompt() -> String {
     .join("\n")
 }
 
-fn build_user_content(capture: &Capture, config: &LlmConfig) -> Value {
+fn build_user_content(
+    capture: &Capture,
+    config: &LlmConfig,
+    analysis_prompt: Option<&str>,
+) -> Value {
+    let prompt_context = analysis_prompt
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            format!(
+                "User's current classification prompt:\n{value}\n\nUse this prompt to judge why the user saved the capture, whether it should be knowledge or TODO, and what tasks or knowledge points to extract. Do not treat it as capture content."
+            )
+        })
+        .unwrap_or_default();
     let text = [
+        prompt_context,
         format!("Capture id: {}", capture.id),
         format!("Source type: {}", capture.source_type),
         capture

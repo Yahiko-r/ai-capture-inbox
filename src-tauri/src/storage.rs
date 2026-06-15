@@ -1,4 +1,6 @@
-use crate::models::{AiRun, AppState, BigNote, Capture, KnowledgeCard, Note, Stats, Task};
+use crate::models::{
+    AiRun, AppSettings, AppState, BigNote, Capture, KnowledgeCard, Note, Stats, Task,
+};
 use chrono::SecondsFormat;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -125,6 +127,14 @@ pub fn write_ai_runs(app: &AppHandle, runs: &[AiRun]) -> Result<(), String> {
     write_json(app, AI_RUNS, &runs)
 }
 
+pub fn get_settings(app: &AppHandle) -> Result<AppSettings, String> {
+    read_json(app, SETTINGS)
+}
+
+pub fn write_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+    write_json(app, SETTINGS, settings)
+}
+
 pub fn get_state(app: &AppHandle) -> Result<AppState, String> {
     let captures = list_captures(app)?;
     let mut notes = list_notes(app)?;
@@ -135,6 +145,7 @@ pub fn get_state(app: &AppHandle) -> Result<AppState, String> {
     let tasks = list_tasks(app)?;
     let knowledge_cards = list_knowledge_cards(app)?;
     let ai_runs = list_ai_runs(app)?;
+    let settings = get_settings(app)?;
     let stats = Stats {
         notes: notes.len(),
         big_notes: big_notes.len(),
@@ -157,6 +168,7 @@ pub fn get_state(app: &AppHandle) -> Result<AppState, String> {
         tasks,
         knowledge_cards,
         ai_runs,
+        settings,
         stats,
     })
 }

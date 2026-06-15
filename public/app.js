@@ -2,6 +2,7 @@ const state = {
   data: null,
   busy: false,
   view: "note",
+  bigNoteMode: "preview",
   selectedNoteId: null,
   selectedBigNoteId: null,
   search: ""
@@ -119,6 +120,7 @@ async function createBigNote() {
       contentMarkdown: ""
     });
     await refresh();
+    state.bigNoteMode = "edit";
     selectBigNote(bigNote.id);
   });
 }
@@ -429,18 +431,203 @@ function renderBigNote() {
   const node = html(`
     <form class="big-note-editor">
       <input name="title" class="big-title" type="text" value="${escapeHtml(bigNote.title)}">
-      <textarea name="contentMarkdown" class="markdown-editor">${escapeHtml(bigNote.contentMarkdown)}</textarea>
+      <div class="editor-toolbar">
+        <div class="mode-switch" role="tablist" aria-label="Markdown mode">
+          <button class="mode-button ${state.bigNoteMode === "edit" ? "active" : ""}" data-mode="edit" type="button">Edit</button>
+          <button class="mode-button ${state.bigNoteMode === "preview" ? "active" : ""}" data-mode="preview" type="button">Preview</button>
+        </div>
+        <button class="primary-button" type="submit">Save</button>
+      </div>
+      <div class="markdown-surface">
+        <textarea name="contentMarkdown" class="markdown-editor" ${state.bigNoteMode === "preview" ? "hidden" : ""}>${escapeHtml(bigNote.contentMarkdown)}</textarea>
+        <article class="markdown-preview" ${state.bigNoteMode === "edit" ? "hidden" : ""}>${renderMarkdown(bigNote.contentMarkdown)}</article>
+      </div>
       <div class="editor-actions">
         <span>Updated ${escapeHtml(formatDateTime(bigNote.updatedAt))}</span>
-        <button class="primary-button" type="submit">Save</button>
+        <span>Markdown</span>
       </div>
     </form>
   `);
+  const editor = node.querySelector('[name="contentMarkdown"]');
+  const preview = node.querySelector(".markdown-preview");
+  const modeButtons = [...node.querySelectorAll("[data-mode]")];
+  const setMode = (mode) => {
+    state.bigNoteMode = mode;
+    preview.innerHTML = renderMarkdown(editor.value);
+    editor.hidden = mode === "preview";
+    preview.hidden = mode === "edit";
+    modeButtons.forEach((button) => {
+      const active = button.dataset.mode === mode;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
+  };
+  modeButtons.forEach((button) => {
+    button.setAttribute("aria-selected", String(button.classList.contains("active")));
+    button.addEventListener("click", () => setMode(button.dataset.mode));
+  });
+  editor.addEventListener("input", () => {
+    if (state.bigNoteMode === "preview") {
+      preview.innerHTML = renderMarkdown(editor.value);
+    }
+  });
   node.addEventListener("submit", (event) => {
     event.preventDefault();
     void saveBigNote(node, bigNote.id);
   });
   replaceMain(node);
+}
+
+function renderMarkdown(markdown) {
+  const lines = String(markdown ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith("```")) {
+      const language = trimmed.slice(3).trim();
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith("```")) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      const languageClass = language ? ` class="language-${escapeHtml(language)}"` : "";
+      blocks.push(`<pre><code${languageClass}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1].length;
+      blocks.push(`<h${level}>${renderMarkdownInline(heading[2])}</h${level}>`);
+      index += 1;
+      continue;
+    }
+
+    if (/^([-*_])\1\1+$/.test(trimmed)) {
+      blocks.push("<hr>");
+      index += 1;
+      continue;
+    }
+
+    if (/^>\s?/.test(trimmed)) {
+      const quoteLines = [];
+      while (index < lines.length && /^>\s?/.test(lines[index].trim())) {
+        quoteLines.push(lines[index].trim().replace(/^>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(`<blockquote>${quoteLines.map(renderMarkdownInline).join("<br>")}</blockquote>`);
+      continue;
+    }
+
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const result = renderMarkdownList(lines, index, false);
+      blocks.push(result.html);
+      index = result.nextIndex;
+      continue;
+    }
+
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const result = renderMarkdownList(lines, index, true);
+      blocks.push(result.html);
+      index = result.nextIndex;
+      continue;
+    }
+
+    const paragraph = [];
+    while (index < lines.length && lines[index].trim() && !isMarkdownBlockStart(lines[index])) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    blocks.push(`<p>${renderMarkdownInline(paragraph.join(" "))}</p>`);
+  }
+
+  return blocks.join("\n") || `<p class="markdown-empty">No content yet</p>`;
+}
+
+function renderMarkdownList(lines, startIndex, ordered) {
+  const tag = ordered ? "ol" : "ul";
+  const pattern = ordered ? /^\s*\d+[.)]\s+(.+)$/ : /^\s*[-*+]\s+(.+)$/;
+  const items = [];
+  let index = startIndex;
+
+  while (index < lines.length) {
+    const match = lines[index].match(pattern);
+    if (!match) break;
+    items.push(renderMarkdownListItem(match[1]));
+    index += 1;
+  }
+
+  return {
+    html: `<${tag}>${items.join("")}</${tag}>`,
+    nextIndex: index
+  };
+}
+
+function renderMarkdownListItem(value) {
+  const task = value.match(/^\[( |x|X)\]\s+(.+)$/);
+  if (task) {
+    const checked = task[1].toLowerCase() === "x" ? " checked" : "";
+    return `<li class="task-list-item"><input type="checkbox" disabled${checked}><span>${renderMarkdownInline(task[2])}</span></li>`;
+  }
+  return `<li>${renderMarkdownInline(value)}</li>`;
+}
+
+function isMarkdownBlockStart(line) {
+  const trimmed = line.trim();
+  return trimmed.startsWith("```")
+    || /^(#{1,6})\s+/.test(trimmed)
+    || /^([-*_])\1\1+$/.test(trimmed)
+    || /^>\s?/.test(trimmed)
+    || /^\s*[-*+]\s+/.test(line)
+    || /^\s*\d+[.)]\s+/.test(line);
+}
+
+function renderMarkdownInline(value) {
+  const tokens = [];
+  const token = (htmlValue) => {
+    const key = `\uE000${tokens.length}\uE001`;
+    tokens.push(htmlValue);
+    return key;
+  };
+
+  let rendered = String(value ?? "")
+    .replace(/`([^`]+)`/g, (_match, code) => token(`<code>${escapeHtml(code)}</code>`))
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, href) => {
+      const safeUrl = safeHref(href);
+      if (!safeUrl) return `${label} (${href})`;
+      return token(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">${renderMarkdownInline(label)}</a>`);
+    });
+
+  rendered = escapeHtml(rendered)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>");
+
+  return rendered.replace(/\uE000(\d+)\uE001/g, (_match, index) => tokens[Number(index)] ?? "");
+}
+
+function safeHref(value) {
+  const trimmed = String(value ?? "").trim();
+  if (trimmed.startsWith("#")) return trimmed;
+  try {
+    const url = new URL(trimmed, window.location.href);
+    if (["http:", "https:", "mailto:"].includes(url.protocol)) return url.href;
+  } catch {
+    return "";
+  }
+  return "";
 }
 
 function filteredNotes() {
