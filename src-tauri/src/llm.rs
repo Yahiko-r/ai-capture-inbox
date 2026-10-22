@@ -25,6 +25,14 @@ pub fn resolve_llm_config() -> LlmConfig {
     if provider.as_deref() == Some("deepseek")
         || (provider.is_none() && env.get("DEEPSEEK_API_KEY").is_some())
     {
+        let model = env
+            .get("DEEPSEEK_MODEL")
+            .cloned()
+            .unwrap_or_else(|| DEEPSEEK_MODEL.to_string());
+
+        // DeepSeek flash model supports native multimodal image input
+        let supports_image = model == "deepseek-flash" || model.contains("vision");
+
         return LlmConfig {
             provider: "deepseek".to_string(),
             api_key: env.get("DEEPSEEK_API_KEY").cloned(),
@@ -32,11 +40,8 @@ pub fn resolve_llm_config() -> LlmConfig {
                 .get("DEEPSEEK_BASE_URL")
                 .cloned()
                 .unwrap_or_else(|| DEEPSEEK_BASE_URL.to_string()),
-            model: env
-                .get("DEEPSEEK_MODEL")
-                .cloned()
-                .unwrap_or_else(|| DEEPSEEK_MODEL.to_string()),
-            supports_image_input: false,
+            model,
+            supports_image_input: supports_image,
         };
     }
 

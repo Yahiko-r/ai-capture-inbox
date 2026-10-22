@@ -5,13 +5,15 @@ const state = {
   bigNoteMode: "preview",
   selectedNoteId: null,
   selectedBigNoteId: null,
-  search: ""
+  search: "",
+  searchDebounceTimer: null
 };
 
 const tauriInvoke = window.__TAURI__?.core?.invoke ?? null;
 
 const els = {
   providerLabel: document.querySelector("#providerLabel"),
+  providerError: document.querySelector("#providerError"),
   statusLine: document.querySelector("#statusLine"),
   refreshButton: document.querySelector("#refreshButton"),
   searchInput: document.querySelector("#searchInput"),
@@ -41,12 +43,54 @@ els.todoNavButton.addEventListener("click", () => {
 });
 els.newBigNoteButton.addEventListener("click", () => createBigNote());
 els.searchInput.addEventListener("input", () => {
-  state.search = els.searchInput.value.trim();
-  render();
+  // Clear existing timer
+  if (state.searchDebounceTimer) {
+    clearTimeout(state.searchDebounceTimer);
+  }
+
+  // Set new timer for 300ms delay
+  state.searchDebounceTimer = setTimeout(() => {
+    state.search = els.searchInput.value.trim();
+    render();
+  }, 300);
 });
 els.textCaptureForm.addEventListener("submit", submitTextNote);
 els.urlCaptureForm.addEventListener("submit", submitUrlNote);
 els.fileCaptureForm.addEventListener("submit", submitFileNote);
+
+// Resizable sidebar
+const resizeHandle = document.getElementById('resizeHandle');
+const sidebar = document.getElementById('sidebar');
+let isResizing = false;
+let startX = 0;
+let startWidth = 0;
+
+resizeHandle.addEventListener('mousedown', (e) => {
+  isResizing = true;
+  startX = e.clientX;
+  startWidth = sidebar.offsetWidth;
+  resizeHandle.classList.add('resizing');
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!isResizing) return;
+
+  const diff = e.clientX - startX;
+  const newWidth = Math.max(200, Math.min(500, startWidth + diff));
+  document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
+});
+
+document.addEventListener('mouseup', () => {
+  if (isResizing) {
+    isResizing = false;
+    resizeHandle.classList.remove('resizing');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }
+});
 
 await refresh();
 
@@ -263,6 +307,7 @@ function render() {
   const tasks = sortedTasks(filteredTasks());
 
   els.providerLabel.textContent = providerLabel();
+  updateProviderError();
   els.statNotes.textContent = String(state.data.notes.length);
   els.statTasks.textContent = String(state.data.tasks.filter((task) => task.status !== "done").length);
   renderSidebar(notes, bigNotes);
@@ -276,6 +321,28 @@ function render() {
     return;
   }
   renderNoteDetail();
+}
+
+function updateProviderError() {
+  const latestNote = state.data?.notes?.[0];
+  if (!latestNote) {
+    els.providerError.textContent = "";
+    els.providerError.style.display = "none";
+    return;
+  }
+
+  // Check if the latest note has an LLM error
+  if (latestNote.status === "failed" && latestNote.aiSummary) {
+    const errorMatch = latestNote.aiSummary.match(/LLM request failed: (.+)/);
+    if (errorMatch) {
+      els.providerError.textContent = `⚠️ ${errorMatch[1].substring(0, 100)}`;
+      els.providerError.style.display = "block";
+      return;
+    }
+  }
+
+  els.providerError.textContent = "";
+  els.providerError.style.display = "none";
 }
 
 function renderSidebar(notes, bigNotes) {
