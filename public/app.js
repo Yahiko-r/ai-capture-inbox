@@ -16,6 +16,7 @@ const els = {
   providerError: document.querySelector("#providerError"),
   statusLine: document.querySelector("#statusLine"),
   refreshButton: document.querySelector("#refreshButton"),
+  settingsButton: document.querySelector("#settingsButton"),
   searchInput: document.querySelector("#searchInput"),
   noteList: document.querySelector("#noteList"),
   bigNoteList: document.querySelector("#bigNoteList"),
@@ -37,6 +38,10 @@ document.querySelectorAll(".composer-tab").forEach((button) => {
 });
 
 els.refreshButton.addEventListener("click", () => refresh());
+els.settingsButton.addEventListener("click", () => {
+  state.view = "settings";
+  render();
+});
 els.todoNavButton.addEventListener("click", () => {
   state.view = "todos";
   render();
@@ -312,6 +317,10 @@ function render() {
   els.statTasks.textContent = String(state.data.tasks.filter((task) => task.status !== "done").length);
   renderSidebar(notes, bigNotes);
 
+  if (state.view === "settings") {
+    renderSettings();
+    return;
+  }
   if (state.view === "todos") {
     renderTodos(tasks);
     return;
@@ -728,6 +737,91 @@ function sortedTasks(tasks) {
     return (parseDate(a.dueAt)?.getTime() ?? Number.MAX_SAFE_INTEGER)
       - (parseDate(b.dueAt)?.getTime() ?? Number.MAX_SAFE_INTEGER);
   });
+}
+
+async function renderSettings() {
+  const template = document.querySelector("#settingsTemplate");
+  const view = template.content.cloneNode(true);
+  replaceMain(view);
+
+  // Load current settings
+  if (tauriInvoke) {
+    try {
+      const settings = await tauriInvoke("get_llm_settings");
+      if (settings) {
+        document.querySelector("#llmProvider").value = settings.provider || "";
+        document.querySelector("#llmApiKey").value = settings.apiKey || "";
+        document.querySelector("#llmBaseUrl").value = settings.baseUrl || "";
+        document.querySelector("#llmModel").value = settings.model || "";
+      }
+    } catch (error) {
+      console.error("Failed to load settings:", error);
+    }
+  }
+
+  // Handle form submission
+  document.querySelector("#llmSettingsForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await saveLlmSettings();
+  });
+
+  // Handle test connection
+  document.querySelector("#testConnectionBtn").addEventListener("click", async () => {
+    await testConnection();
+  });
+}
+
+async function saveLlmSettings() {
+  const provider = document.querySelector("#llmProvider").value;
+  const apiKey = document.querySelector("#llmApiKey").value;
+  const baseUrl = document.querySelector("#llmBaseUrl").value || null;
+  const model = document.querySelector("#llmModel").value || null;
+
+  if (!provider || !apiKey) {
+    showConnectionStatus("Please fill in provider and API key", "error");
+    return;
+  }
+
+  if (tauriInvoke) {
+    try {
+      await tauriInvoke("save_llm_settings", { provider, apiKey, baseUrl, model });
+      showConnectionStatus("Settings saved successfully!", "success");
+
+      // Refresh data to update provider label
+      setTimeout(() => refresh(), 1000);
+    } catch (error) {
+      showConnectionStatus(`Failed to save: ${error}`, "error");
+    }
+  }
+}
+
+async function testConnection() {
+  const provider = document.querySelector("#llmProvider").value;
+  const apiKey = document.querySelector("#llmApiKey").value;
+  const baseUrl = document.querySelector("#llmBaseUrl").value || null;
+  const model = document.querySelector("#llmModel").value || null;
+
+  if (!provider || !apiKey) {
+    showConnectionStatus("Please fill in provider and API key", "error");
+    return;
+  }
+
+  showConnectionStatus("Testing connection...", "");
+
+  if (tauriInvoke) {
+    try {
+      const result = await tauriInvoke("test_llm_connection", { provider, apiKey, baseUrl, model });
+      showConnectionStatus(result, "success");
+    } catch (error) {
+      showConnectionStatus(`Connection failed: ${error}`, "error");
+    }
+  }
+}
+
+function showConnectionStatus(message, type) {
+  const statusEl = document.querySelector("#connectionStatus");
+  statusEl.textContent = message;
+  statusEl.className = `connection-status ${type}`;
 }
 
 function replaceMain(node) {

@@ -2,10 +2,13 @@ use crate::models::{
     AiResult, Capture, KnowledgePoint, LlmConfig, LlmRequestResult, SuggestedTask,
 };
 use crate::storage::project_root;
+use crate::settings::LlmSettings;
 use reqwest::{Client, Proxy};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
+use tauri::{AppHandle, Manager};
+use tauri_plugin_store::StoreExt;
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
@@ -14,12 +17,79 @@ const DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
 const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/";
 const GEMINI_MODEL: &str = "gemini-3.5-flash";
 
-pub fn has_llm_config() -> bool {
-    resolve_llm_config().api_key.is_some()
+pub fn has_llm_config(app: Option<&AppHandle>) -> bool {
+    resolve_llm_config(app).api_key.is_some()
 }
 
-pub fn resolve_llm_config() -> LlmConfig {
+pub fn resolve_llm_config(app: Option<&AppHandle>) -> LlmConfig {
+    // First try to load from user settings (Store)
+    if let Some(app_handle) = app {
+        if let Ok(Some(user_settings)) = load_user_settings(app_handle) {
+            return build_config_from_user_settings(&user_settings);
+        }
+    }
+
+    // Fallback to .env file
     let env = merged_env();
+    build_config_from_env(&env)
+}
+
+fn load_user_settings(app: &AppHandle) -> Result<Option<LlmSettings>, String> {
+    let store = app
+        .store("settings.json")
+        .map_err(|e| format!("Failed to open store: {}", e))?;
+
+    let llm_value = store.get("llm");
+
+    if let Some(value) = llm_value {
+        let settings: LlmSettings = serde_json::from_value(value.clone())
+            .map_err(|e| format!("Failed to parse LLM settings: {}", e))?;
+        Ok(Some(settings))
+    } else {
+        Ok(None)
+    }
+}
+
+fn build_config_from_user_settings(settings: &LlmSettings) -> LlmConfig {
+    let provider = settings.provider.to_lowercase();
+
+    match provider.as_str() {
+        "deepseek" => {
+            let model = settings
+                .model
+                .clone()
+                .unwrap_or_else(|| DEEPSEEK_MODEL.to_string());
+            let supports_image = model == "deepseek-flash" || model.contains("vision");
+
+            LlmConfig {
+                provider: "deepseek".to_string(),
+                api_key: Some(settings.api_key.clone()),
+                base_url: settings
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| DEEPSEEK_BASE_URL.to_string()),
+                model,
+                supports_image_input: supports_image,
+            }
+        }
+        "openai" => LlmConfig {
+            provider: "openai-compatible".to_string(),
+            api_key: Some(settings.api_key.clone()),
+            base_url: settings
+                .base_url
+                .clone()
+                .unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
+            model: settings
+                .model
+                .clone()
+                .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+            supports_image_input: true,
+        },
+        _ => build_config_from_env(&merged_env()),
+    }
+}
+
+fn build_config_from_env(env: &HashMap<String, String>) -> LlmConfig {
     let provider = env.get("LLM_PROVIDER").map(|value| value.to_lowercase());
 
     if provider.as_deref() == Some("deepseek")
@@ -30,7 +100,6 @@ pub fn resolve_llm_config() -> LlmConfig {
             .cloned()
             .unwrap_or_else(|| DEEPSEEK_MODEL.to_string());
 
-        // DeepSeek flash model supports native multimodal image input
         let supports_image = model == "deepseek-flash" || model.contains("vision");
 
         return LlmConfig {
@@ -82,10 +151,11 @@ pub fn resolve_llm_config() -> LlmConfig {
 }
 
 pub async fn analyze_capture(
+    app: &AppHandle,
     capture: &Capture,
     analysis_prompt: Option<&str>,
 ) -> Result<LlmRequestResult, String> {
-    let config = resolve_llm_config();
+    let config = resolve_llm_config(Some(app));
     let api_key = config
         .api_key
         .clone()

@@ -71,6 +71,7 @@
 
         <div class="sidebar-footer">
           <button id="refreshButton" class="icon-button" type="button" title="Refresh" aria-label="Refresh">↻</button>
+          <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings">⚙️</button>
           <div id="statusLine" class="status-line">Ready</div>
         </div>
       </aside>
@@ -85,6 +86,54 @@
     <template id="emptyTemplate">
       <div class="empty-state">
         <h3>No items</h3>
+      </div>
+    </template>
+
+    <template id="settingsTemplate">
+      <div class="settings-view">
+        <div class="settings-sidebar">
+          <h2>Settings</h2>
+          <nav class="settings-nav">
+            <button class="settings-nav-item active" data-section="llm">AI Provider</button>
+          </nav>
+        </div>
+        <div class="settings-content">
+          <section id="llmSettings" class="settings-section active">
+            <h3>AI Provider Configuration</h3>
+            <form id="llmSettingsForm">
+              <div class="form-group">
+                <label for="llmProvider">Provider</label>
+                <select id="llmProvider" required>
+                  <option value="">-- Select Provider --</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="llmApiKey">API Key</label>
+                <input id="llmApiKey" type="password" placeholder="sk-..." required>
+              </div>
+
+              <div class="form-group">
+                <label for="llmBaseUrl">Base URL (Optional)</label>
+                <input id="llmBaseUrl" type="text" placeholder="Leave empty for default">
+              </div>
+
+              <div class="form-group">
+                <label for="llmModel">Model (Optional)</label>
+                <input id="llmModel" type="text" placeholder="Leave empty for default">
+              </div>
+
+              <div class="form-actions">
+                <button type="button" id="testConnectionBtn" class="secondary-button">Test Connection</button>
+                <button type="submit" class="primary-button">Save Settings</button>
+              </div>
+
+              <div id="connectionStatus" class="connection-status"></div>
+            </form>
+          </section>
+        </div>
       </div>
     </template>
 

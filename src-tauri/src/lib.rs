@@ -2,6 +2,7 @@ mod commands;
 mod llm;
 mod models;
 mod reminders;
+mod settings;
 mod storage;
 
 use tauri::{
@@ -14,6 +15,7 @@ use tauri::{
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
             setup_tray(app)?;
             setup_close_to_tray(app);
@@ -42,7 +44,10 @@ pub fn run() {
             commands::update_task_schedule,
             commands::mark_task_reminded,
             commands::show_task_notification,
-            commands::complete_task
+            commands::complete_task,
+            settings::get_llm_settings,
+            settings::save_llm_settings,
+            settings::test_llm_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

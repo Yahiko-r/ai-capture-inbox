@@ -20,3 +20,4 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 tauri-plugin-notification = "2"
+tauri-plugin-store = "2"

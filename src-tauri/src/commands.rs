@@ -563,8 +563,8 @@ fn clean_notification_text(value: &str, fallback: &str) -> String {
 async fn process_capture(app: &AppHandle, capture: Capture) -> Result<AiResult, String> {
     let started_at = storage::now_iso();
     let settings = storage::get_settings(app)?;
-    let config = if has_llm_config() {
-        Some(resolve_llm_config())
+    let config = if has_llm_config(Some(app)) {
+        Some(resolve_llm_config(Some(app)))
     } else {
         None
     };
@@ -575,7 +575,7 @@ async fn process_capture(app: &AppHandle, capture: Capture) -> Result<AiResult, 
     let model = config.as_ref().map(|config| config.model.clone());
 
     let request_result = if config.is_some() {
-        analyze_capture(&capture, Some(&settings.analysis_prompt)).await
+        analyze_capture(app, &capture, Some(&settings.analysis_prompt)).await
     } else {
         Ok(LlmRequestResult {
             result: analyze_with_mock(&capture, Some(&settings.analysis_prompt)),
@@ -747,8 +747,8 @@ async fn analyze_and_replace_note(app: &AppHandle, note: Note) -> Result<Note, S
     let capture = note_to_capture(&note);
     let started_at = storage::now_iso();
     let settings = storage::get_settings(app)?;
-    let config = if has_llm_config() {
-        Some(resolve_llm_config())
+    let config = if has_llm_config(Some(&app)) {
+        Some(resolve_llm_config(Some(&app)))
     } else {
         None
     };
@@ -759,7 +759,7 @@ async fn analyze_and_replace_note(app: &AppHandle, note: Note) -> Result<Note, S
     let model = config.as_ref().map(|config| config.model.clone());
 
     let request_result = if config.is_some() {
-        analyze_capture(&capture, Some(&settings.analysis_prompt)).await
+        analyze_capture(app, &capture, Some(&settings.analysis_prompt)).await
     } else {
         Ok(LlmRequestResult {
             result: analyze_with_mock(&capture, Some(&settings.analysis_prompt)),
