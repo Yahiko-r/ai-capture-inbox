@@ -46,7 +46,11 @@ pub fn run() {
             commands::show_task_notification,
             commands::complete_task,
             settings::get_llm_settings,
-            settings::save_llm_settings,
+            settings::get_llm_profiles,
+            settings::save_llm_profile,
+            settings::set_current_profile,
+            settings::delete_llm_profile,
+            settings::rename_llm_profile,
             settings::test_llm_connection
         ])
         .run(tauri::generate_context!())

@@ -16,60 +16,191 @@ pub struct LlmSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AppConfig {
-    pub llm: Option<LlmSettings>,
+pub struct LlmProfile {
+    pub id: String,
+    pub name: String,
+    pub provider: String,
+    pub api_key: String,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
 }
 
-impl Default for AppConfig {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfilesConfig {
+    pub current_profile_id: Option<String>,
+    pub profiles: Vec<LlmProfile>,
+}
+
+impl Default for ProfilesConfig {
     fn default() -> Self {
-        Self { llm: None }
+        Self {
+            current_profile_id: None,
+            profiles: Vec::new(),
+        }
     }
 }
 
 #[tauri::command]
-pub fn get_llm_settings(app: AppHandle) -> Result<Option<LlmSettings>, String> {
+pub fn get_llm_profiles(app: AppHandle) -> Result<ProfilesConfig, String> {
     let store = app
         .store(STORE_FILE)
         .map_err(|e| format!("Failed to open store: {}", e))?;
 
-    let llm_value = store.get("llm");
+    let profiles_value = store.get("llm_profiles");
 
-    if let Some(value) = llm_value {
-        let settings: LlmSettings = serde_json::from_value(value.clone())
-            .map_err(|e| format!("Failed to parse LLM settings: {}", e))?;
-        Ok(Some(settings))
+    if let Some(value) = profiles_value {
+        let config: ProfilesConfig = serde_json::from_value(value.clone())
+            .map_err(|e| format!("Failed to parse profiles: {}", e))?;
+        Ok(config)
     } else {
-        Ok(None)
+        Ok(ProfilesConfig::default())
     }
 }
 
 #[tauri::command]
-pub fn save_llm_settings(
+pub fn save_llm_profile(
     app: AppHandle,
+    profile_id: Option<String>,
+    profile_name: String,
     provider: String,
     api_key: String,
     base_url: Option<String>,
     model: Option<String>,
-) -> Result<(), String> {
-    let settings = LlmSettings {
+) -> Result<ProfilesConfig, String> {
+    let mut config = get_llm_profiles(app.clone())?;
+
+    let id = profile_id.unwrap_or_else(|| {
+        format!("profile_{}", chrono::Utc::now().timestamp_millis())
+    });
+
+    let new_profile = LlmProfile {
+        id: id.clone(),
+        name: profile_name,
         provider,
         api_key,
         base_url,
         model,
     };
 
+    // 查找是否存在相同ID的profile
+    if let Some(pos) = config.profiles.iter().position(|p| p.id == id) {
+        config.profiles[pos] = new_profile;
+    } else {
+        config.profiles.push(new_profile);
+    }
+
+    // 如果是第一个profile，设置为当前
+    if config.current_profile_id.is_none() {
+        config.current_profile_id = Some(id);
+    }
+
     let store = app
         .store(STORE_FILE)
         .map_err(|e| format!("Failed to open store: {}", e))?;
 
-    store.set("llm", serde_json::to_value(&settings).unwrap());
+    store.set("llm_profiles", serde_json::to_value(&config).unwrap());
 
     store
         .save()
-        .map_err(|e| format!("Failed to persist settings: {}", e))?;
+        .map_err(|e| format!("Failed to persist profiles: {}", e))?;
 
-    Ok(())
+    Ok(config)
 }
+
+#[tauri::command]
+pub fn set_current_profile(app: AppHandle, profile_id: String) -> Result<ProfilesConfig, String> {
+    let mut config = get_llm_profiles(app.clone())?;
+
+    if !config.profiles.iter().any(|p| p.id == profile_id) {
+        return Err("Profile not found".to_string());
+    }
+
+    config.current_profile_id = Some(profile_id);
+
+    let store = app
+        .store(STORE_FILE)
+        .map_err(|e| format!("Failed to open store: {}", e))?;
+
+    store.set("llm_profiles", serde_json::to_value(&config).unwrap());
+
+    store
+        .save()
+        .map_err(|e| format!("Failed to persist profiles: {}", e))?;
+
+    Ok(config)
+}
+
+#[tauri::command]
+pub fn delete_llm_profile(app: AppHandle, profile_id: String) -> Result<ProfilesConfig, String> {
+    let mut config = get_llm_profiles(app.clone())?;
+
+    config.profiles.retain(|p| p.id != profile_id);
+
+    // 如果删除的是当前profile，切换到第一个
+    if config.current_profile_id.as_ref() == Some(&profile_id) {
+        config.current_profile_id = config.profiles.first().map(|p| p.id.clone());
+    }
+
+    let store = app
+        .store(STORE_FILE)
+        .map_err(|e| format!("Failed to open store: {}", e))?;
+
+    store.set("llm_profiles", serde_json::to_value(&config).unwrap());
+
+    store
+        .save()
+        .map_err(|e| format!("Failed to persist profiles: {}", e))?;
+
+    Ok(config)
+}
+
+#[tauri::command]
+pub fn rename_llm_profile(
+    app: AppHandle,
+    profile_id: String,
+    new_name: String,
+) -> Result<ProfilesConfig, String> {
+    let mut config = get_llm_profiles(app.clone())?;
+
+    if let Some(profile) = config.profiles.iter_mut().find(|p| p.id == profile_id) {
+        profile.name = new_name;
+    } else {
+        return Err("Profile not found".to_string());
+    }
+
+    let store = app
+        .store(STORE_FILE)
+        .map_err(|e| format!("Failed to open store: {}", e))?;
+
+    store.set("llm_profiles", serde_json::to_value(&config).unwrap());
+
+    store
+        .save()
+        .map_err(|e| format!("Failed to persist profiles: {}", e))?;
+
+    Ok(config)
+}
+
+// 保留旧的命令以兼容
+#[tauri::command]
+pub fn get_llm_settings(app: AppHandle) -> Result<Option<LlmSettings>, String> {
+    let config = get_llm_profiles(app)?;
+
+    if let Some(profile_id) = config.current_profile_id {
+        if let Some(profile) = config.profiles.iter().find(|p| p.id == profile_id) {
+            return Ok(Some(LlmSettings {
+                provider: profile.provider.clone(),
+                api_key: profile.api_key.clone(),
+                base_url: profile.base_url.clone(),
+                model: profile.model.clone(),
+            }));
+        }
+    }
+
+    Ok(None)
+}
+
 
 #[tauri::command]
 pub async fn test_llm_connection(
@@ -111,13 +242,18 @@ pub async fn test_llm_connection(
         .map_err(|e| format!("Network error: {}", e))?;
 
     let status = response.status();
-    if status.is_success() {
-        Ok(format!("Connection successful! Model: {}", test_model))
-    } else {
-        let text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
-        Err(format!("HTTP {}: {}", status, text))
+    let text = response
+        .text()
+        .await
+        .unwrap_or_else(|_| "Empty response".to_string());
+
+    if !status.is_success() {
+        return Err(format!("HTTP {}: {}", status, text));
+    }
+
+    // 验证返回的是有效JSON
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(_) => Ok(format!("Connection successful! Model: {}", test_model)),
+        Err(e) => Err(format!("Invalid JSON response: {}. Response body: {}", e, &text[..text.len().min(200)])),
     }
 }

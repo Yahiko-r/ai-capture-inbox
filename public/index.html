@@ -30,7 +30,7 @@
           </form>
 
           <form id="urlCaptureForm" class="capture-form">
-            <input id="urlCaptureInput" type="url" placeholder="https://example.com">
+            <textarea id="urlCaptureInput" rows="1" placeholder="https://example.com"></textarea>
             <button class="primary-button" type="submit">Analyze web</button>
           </form>
 
@@ -100,6 +100,12 @@
         <div class="settings-content">
           <section id="llmSettings" class="settings-section active">
             <h3>AI Provider Configuration</h3>
+
+            <div class="profiles-bar">
+              <div class="profiles-list" id="profilesList"></div>
+              <button type="button" id="addProfileBtn" class="add-profile-btn" title="Add Profile">+</button>
+            </div>
+
             <form id="llmSettingsForm">
               <div class="form-group">
                 <label for="llmProvider">Provider</label>
@@ -136,6 +142,17 @@
         </div>
       </div>
     </template>
+
+    <div id="saveProfileModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>Save Profile</h3>
+        <input type="text" id="profileNameInput" placeholder="Profile 1" class="modal-input">
+        <div class="modal-actions">
+          <button type="button" id="cancelProfileBtn" class="secondary-button">Cancel</button>
+          <button type="button" id="confirmProfileBtn" class="primary-button">Save</button>
+        </div>
+      </div>
+    </div>
 
     <script src="/app.js" type="module"></script>
   </body>

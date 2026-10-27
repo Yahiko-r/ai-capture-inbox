@@ -163,7 +163,6 @@ pub async fn analyze_capture(
 
     let mut body = json!({
         "model": config.model,
-        "temperature": 0.2,
         "response_format": build_response_format(&config),
         "messages": [
             {
@@ -176,6 +175,11 @@ pub async fn analyze_capture(
             }
         ]
     });
+
+    // 只对官方API设置temperature，第三方API可能不支持
+    if config.provider == "deepseek" || config.provider == "gemini" {
+        body["temperature"] = json!(0.2);
+    }
 
     if config.provider == "deepseek" {
         let env = merged_env();
@@ -256,6 +260,10 @@ fn merged_env() -> HashMap<String, String> {
 fn http_client() -> Result<Client, String> {
     let env = merged_env();
     let mut builder = Client::builder();
+
+    // 设置自定义User-Agent
+    builder = builder.user_agent("Test");
+
     if let Some(proxy_url) = proxy_url(&env) {
         builder = builder.proxy(Proxy::all(proxy_url).map_err(|error| error.to_string())?);
     }

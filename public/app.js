@@ -39,7 +39,14 @@ document.querySelectorAll(".composer-tab").forEach((button) => {
 
 els.refreshButton.addEventListener("click", () => refresh());
 els.settingsButton.addEventListener("click", () => {
-  state.view = "settings";
+  if (state.view === "settings") {
+    // 如果已经在设置页面，返回之前的视图
+    state.view = state.previousView || "note";
+  } else {
+    // 保存当前视图，然后进入设置
+    state.previousView = state.view;
+    state.view = "settings";
+  }
   render();
 });
 els.todoNavButton.addEventListener("click", () => {
@@ -744,56 +751,217 @@ async function renderSettings() {
   const view = template.content.cloneNode(true);
   replaceMain(view);
 
-  // Load current settings
+  let profilesConfig = { currentProfileId: null, profiles: [] };
+  let currentProfileId = null;
+
+  // Load profiles
   if (tauriInvoke) {
     try {
-      const settings = await tauriInvoke("get_llm_settings");
-      if (settings) {
-        document.querySelector("#llmProvider").value = settings.provider || "";
-        document.querySelector("#llmApiKey").value = settings.apiKey || "";
-        document.querySelector("#llmBaseUrl").value = settings.baseUrl || "";
-        document.querySelector("#llmModel").value = settings.model || "";
+      profilesConfig = await tauriInvoke("get_llm_profiles");
+      currentProfileId = profilesConfig.currentProfileId;
+      renderProfiles(profilesConfig);
+
+      // Load current profile settings into form
+      if (currentProfileId) {
+        const profile = profilesConfig.profiles.find(p => p.id === currentProfileId);
+        if (profile) {
+          loadProfileIntoForm(profile);
+        }
       }
     } catch (error) {
-      console.error("Failed to load settings:", error);
+      console.error("Failed to load profiles:", error);
     }
   }
+
+  // Handle profile click (switch)
+  document.querySelector("#profilesList").addEventListener("click", async (e) => {
+    const chip = e.target.closest(".profile-chip");
+    if (chip && !chip.classList.contains("editing")) {
+      const profileId = chip.dataset.profileId;
+      if (tauriInvoke) {
+        try {
+          profilesConfig = await tauriInvoke("set_current_profile", { profileId });
+          currentProfileId = profileId;
+          renderProfiles(profilesConfig);
+
+          const profile = profilesConfig.profiles.find(p => p.id === profileId);
+          if (profile) {
+            loadProfileIntoForm(profile);
+          }
+        } catch (error) {
+          console.error("Failed to switch profile:", error);
+        }
+      }
+    }
+  });
+
+  // Handle profile double-click (rename)
+  document.querySelector("#profilesList").addEventListener("dblclick", (e) => {
+    const chip = e.target.closest(".profile-chip");
+    if (chip) {
+      startRenameProfile(chip);
+    }
+  });
+
+  // Handle profile right-click (delete)
+  document.querySelector("#profilesList").addEventListener("contextmenu", async (e) => {
+    e.preventDefault();
+    const chip = e.target.closest(".profile-chip");
+    if (chip && profilesConfig.profiles.length > 1) {
+      const profileId = chip.dataset.profileId;
+      if (confirm("Delete this profile?")) {
+        if (tauriInvoke) {
+          try {
+            profilesConfig = await tauriInvoke("delete_llm_profile", { profileId });
+            currentProfileId = profilesConfig.currentProfileId;
+            renderProfiles(profilesConfig);
+
+            if (currentProfileId) {
+              const profile = profilesConfig.profiles.find(p => p.id === currentProfileId);
+              if (profile) {
+                loadProfileIntoForm(profile);
+              }
+            }
+          } catch (error) {
+            console.error("Failed to delete profile:", error);
+          }
+        }
+      }
+    }
+  });
+
+  // Handle add profile button
+  document.querySelector("#addProfileBtn").addEventListener("click", () => {
+    showSaveProfileModal();
+  });
 
   // Handle form submission
   document.querySelector("#llmSettingsForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    await saveLlmSettings();
+    showSaveProfileModal();
   });
 
   // Handle test connection
   document.querySelector("#testConnectionBtn").addEventListener("click", async () => {
     await testConnection();
   });
-}
 
-async function saveLlmSettings() {
-  const provider = document.querySelector("#llmProvider").value;
-  const apiKey = document.querySelector("#llmApiKey").value;
-  const baseUrl = document.querySelector("#llmBaseUrl").value || null;
-  const model = document.querySelector("#llmModel").value || null;
+  function renderProfiles(config) {
+    const list = document.querySelector("#profilesList");
+    list.innerHTML = "";
 
-  if (!provider || !apiKey) {
-    showConnectionStatus("Please fill in provider and API key", "error");
-    return;
+    config.profiles.forEach(profile => {
+      const chip = document.createElement("div");
+      chip.className = `profile-chip ${profile.id === config.currentProfileId ? "active" : ""}`;
+      chip.dataset.profileId = profile.id;
+      chip.textContent = profile.name;
+      list.appendChild(chip);
+    });
   }
 
-  if (tauriInvoke) {
-    try {
-      await tauriInvoke("save_llm_settings", { provider, apiKey, baseUrl, model });
-      showConnectionStatus("Settings saved successfully!", "success");
+  function loadProfileIntoForm(profile) {
+    document.querySelector("#llmProvider").value = profile.provider;
+    document.querySelector("#llmApiKey").value = profile.apiKey;
+    document.querySelector("#llmBaseUrl").value = profile.baseUrl || "";
+    document.querySelector("#llmModel").value = profile.model || "";
+  }
 
-      // Refresh data to update provider label
-      setTimeout(() => refresh(), 1000);
-    } catch (error) {
-      showConnectionStatus(`Failed to save: ${error}`, "error");
-    }
+  function startRenameProfile(chip) {
+    const profileId = chip.dataset.profileId;
+    const oldName = chip.textContent;
+
+    chip.classList.add("editing");
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = oldName;
+    chip.textContent = "";
+    chip.appendChild(input);
+    input.focus();
+    input.select();
+
+    const finishRename = async () => {
+      const newName = input.value.trim() || oldName;
+      if (tauriInvoke && newName !== oldName) {
+        try {
+          await tauriInvoke("rename_llm_profile", { profileId, newName });
+          chip.textContent = newName;
+        } catch (error) {
+          console.error("Failed to rename profile:", error);
+          chip.textContent = oldName;
+        }
+      } else {
+        chip.textContent = oldName;
+      }
+      chip.classList.remove("editing");
+    };
+
+    input.addEventListener("blur", finishRename);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") finishRename();
+      if (e.key === "Escape") {
+        chip.textContent = oldName;
+        chip.classList.remove("editing");
+      }
+    });
+  }
+
+  function showSaveProfileModal() {
+    const modal = document.querySelector("#saveProfileModal");
+    const input = document.querySelector("#profileNameInput");
+    const nextNum = profilesConfig.profiles.length + 1;
+    input.value = `Profile ${nextNum}`;
+    modal.style.display = "flex";
+    input.focus();
+    input.select();
+
+    const cancel = () => {
+      modal.style.display = "none";
+    };
+
+    const save = async () => {
+      const profileName = input.value.trim() || `Profile ${nextNum}`;
+      const provider = document.querySelector("#llmProvider").value;
+      const apiKey = document.querySelector("#llmApiKey").value;
+      const baseUrl = document.querySelector("#llmBaseUrl").value || null;
+      const model = document.querySelector("#llmModel").value || null;
+
+      if (!provider || !apiKey) {
+        showConnectionStatus("Please fill in provider and API key", "error");
+        modal.style.display = "none";
+        return;
+      }
+
+      if (tauriInvoke) {
+        try {
+          profilesConfig = await tauriInvoke("save_llm_profile", {
+            profileId: currentProfileId,
+            profileName,
+            provider,
+            apiKey,
+            baseUrl,
+            model,
+          });
+          currentProfileId = profilesConfig.currentProfileId;
+          renderProfiles(profilesConfig);
+          showConnectionStatus("Profile saved successfully!", "success");
+          setTimeout(() => refresh(), 1000);
+        } catch (error) {
+          showConnectionStatus(`Failed to save: ${error}`, "error");
+        }
+      }
+
+      modal.style.display = "none";
+    };
+
+    document.querySelector("#cancelProfileBtn").onclick = cancel;
+    document.querySelector("#confirmProfileBtn").onclick = save;
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") save();
+      if (e.key === "Escape") cancel();
+    };
   }
 }
+
 
 async function testConnection() {
   const provider = document.querySelector("#llmProvider").value;
@@ -823,6 +991,7 @@ function showConnectionStatus(message, type) {
   statusEl.textContent = message;
   statusEl.className = `connection-status ${type}`;
 }
+
 
 function replaceMain(node) {
   els.mainPanel.replaceChildren(node);
