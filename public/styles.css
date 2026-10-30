@@ -315,8 +315,8 @@ select:focus {
 
 .nav-list {
   display: grid;
-  gap: 2px;
-  padding-top: 4px;
+  gap: 1px;
+  padding-top: 2px;
 }
 
 .nav-row {
@@ -324,9 +324,9 @@ select:focus {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
+  min-height: 30px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 5px 12px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
@@ -493,24 +493,26 @@ select:focus {
 
 .action-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.75fr);
-  gap: 12px;
-  margin-top: 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 0.55fr);
+  gap: 10px;
+  margin-top: 24px;
 }
 
 .action-card,
 .todo-create {
   display: grid;
-  gap: 9px;
-  padding: 14px;
+  gap: 6px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fffaf2;
 }
 
 .action-card h3 {
-  margin: 0;
-  font-size: 15px;
+  margin: 0 0 2px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .todo-create {

@@ -265,7 +265,12 @@ fn http_client() -> Result<Client, String> {
     builder = builder.user_agent("Test");
 
     if let Some(proxy_url) = proxy_url(&env) {
-        builder = builder.proxy(Proxy::all(proxy_url).map_err(|error| error.to_string())?);
+        let proxy = Proxy::all(proxy_url).map_err(|error| error.to_string())?;
+        // 添加 NO_PROXY 支持，确保内网域名不走代理
+        let proxy = proxy.no_proxy(
+            reqwest::NoProxy::from_string("localhost,127.0.0.1,.will,*.will,api.llm.will")
+        );
+        builder = builder.proxy(proxy);
     }
     builder.build().map_err(|error| error.to_string())
 }

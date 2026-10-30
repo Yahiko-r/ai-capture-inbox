@@ -832,7 +832,19 @@ async function renderSettings() {
 
   // Handle add profile button
   document.querySelector("#addProfileBtn").addEventListener("click", () => {
-    showSaveProfileModal();
+    // Clear form and set to new profile mode
+    currentProfileId = null;
+    document.querySelector("#llmProvider").value = "deepseek";
+    document.querySelector("#llmApiKey").value = "";
+    document.querySelector("#llmBaseUrl").value = "";
+    document.querySelector("#llmModel").value = "";
+
+    // Remove active state from all profile chips
+    document.querySelectorAll(".profile-chip").forEach(chip => {
+      chip.classList.remove("active");
+    });
+
+    showConnectionStatus("Fill in the form and click 'Save Settings' to create a new profile", "");
   });
 
   // Handle form submission
